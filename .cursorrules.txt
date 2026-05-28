@@ -1,0 +1,68 @@
+# MyRank - Proje Anayasası
+
+## 1. Uygulamanın Özü ve Ana Vaat
+*   **Temel Yapı:** Instagram ve TikTok'un tüm temel özelliklerini (medya paylaşımı, akış, profil) barındırır.
+*   **Ana Fark:** Tüm ekosistem bir Puanlama ve Sıralama sistemi üzerine kuruludur.
+*   **Sınırsız Tıklama:** Gönderiler beğenme ve beğenmeme butonlarıyla sınırsız kez tıklanabilir.
+*   **Formüller:** 
+    *   `Gönderi Puanı = Beğenme - Beğenmeme`
+    *   `Kullanıcı Puanı = Tüm Gönderi Puanları`
+
+---
+
+## 2. İlk Giriş ve Kayıt Kategorileri
+Kullanıcı kayıt olurken kullanıcı ismi dışında şu verileri girmek zorundadır:
+*   **Kullanıcı İsmi**
+*   **Ülke**
+*   **Şehir**
+*   **Cinsiyet**
+*   **Yaş**
+*   **Meslek**
+*   **Medeni Durum**
+*   **İlgi Alanları**
+
+---
+
+## 3. Alt Menü (Navigation Bar) Dizilimi
+Ekranın altındaki bar, uygulamanın ana sayfa akışını tam olarak şu sıra ile belirler:
+1.  **Ana Sayfa** (En solda)
+2.  **Keşfet**
+3.  **[+] Gönderi Paylaş** (Tam ortada)
+4.  **Sıralama Sayfası**
+5.  **Profil Sayfası** (En sağda)
+
+---
+
+## 4. Görsel Tarz ve Tasarım Kuralları (Maksimum Sade, Maksimum Hızlı)
+*   **Tema:** Beyaz ağırlıklı, temiz, göz yormayan ve minimalist bir arayüz (Açık mod).
+*   **Renk Paleti:** Dominant renk beyazdır. Aksiyon, buton ve vurgularda sadece Kırmızı ve Mavi renkleri kullanılacaktır.
+*   **Hız ve Performans İlkesi:** Sayfa ne kadar sade o kadar hızlıdır. Gereksiz gölgeler, ağır görsel efektler ve kod yükü yaratacak animasyonlar kesinlikle yasaktır. Arayüz tamamen hafiflik üzerine kurulacaktır.
+
+---
+
+## 5. Kritik Teknik Sınırlar (Kombo ve Maliyet Kanunları)
+*   **33 Tamamlandığında:** Sunucuya veri gider. Gönderi puanına +33 veya -33 işler. (Sadece 1 yazma maliyeti).
+*   **33 Tamamlanmazsa:** Ara puanlar silinir. Sunucuya sadece 1 puan işlenir. (Yine sadece 1 yazma maliyeti).
+BİLDİRİM BAR BAR VE DEDİKODUCU AI SES MOTORU KURALLARI:
+
+Profil sayfasında, profil resminin/isminin hemen altında ve 6'lı lig kartlarının üzerinde tam genişlikte yatay bir bar yer alır. Solunda 'Sen yokken neler oldu?' yazar, sağ ucunda bir hoparlör (hoparlör) ikonu bulunur.
+
+Barın yazı alanına tıklanırsa sessizce, hoparlör ikonuna tıklanırsa ses motorunu (speak=true parametresiyle) tetikleyerek yeni oluşturulan /notifications sayfasına yönlendirme yapılır.
+
+Bildirimler sayfası (Notifications.tsx) tek akıştır. Sıralama düşüşleri sert/hırslandırıcı, normal etkileşimler ise doğrudan ve net bir dille listelenir.
+
+Ses motoru tetiklendiğinde Web Speech API (window.speechSynthesis) devreye girer. Gelen bildirim metinlerini düz okumaz; Türkçe dilinde, eğlenceli ve dedikoducu bir kadın üslubuna (Örn: 'Kız duyduk duymadık deme...', 'Ay hadi yine iyisin...') çevirerek seslendirir.
+
+Kullanıcı bildirimler sayfasından çıktığı veya başka bir yere tıkladığı an (component unmount olduğunda) ses motoru acımasızca susturulur (window.speechSynthesis.cancel()).
+
+Kartlarda gölge (shadow) ve ikon kalabalığı kullanılmaz. Sol kenarda dikey ince kırmızı (düşüş) veya mavi (etkileşim) çizgilerle minimalist vurgu yapılır.
+
+TEKNİK BORÇ VE KRİTİK ALTYAPI NOTLARI:
+
+1. Firebase Storage Aktivasyon Krizi (BEKLEMEDE):
+
+Firebase Console üzerinden Storage (Medya Deposu) aktif edilirken tarayıcı/sunucu hatası alındı. Google Cloud Console üzerinde projenin senkronizasyon gecikmesi olduğu tespit edildi.
+
+Kritik Kural: Sistem mimarisi geçici olarak Storage olmadan, sadece Auth ve Firestore üzerinden ayağa kaldırılmıştır.
+
+Gelecek Hamle: Videoları gerçekten buluta yükleme (Firebase Storage entegrasyonu) aşamasına geçildiğinde, kod yazılmadan önce bu krizin çözülüp çözülmediği manuel olarak kontrol edilecek. Storage hatası çözülmeden video upload backend kodlarına ASLA geçiş yapılmayacaktır.
