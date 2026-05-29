@@ -146,7 +146,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [fullScreenType, setFullScreenType] = useState<PostType | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [isOnboarded, setIsOnboarded] = useState(false)
-  const authInitializedRef = useRef(false)
 
   const normalizedPosts = posts
 
@@ -211,12 +210,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setUser(authUser)
       setIsOnboarded(userDoc?.isOnboarded === true && isProfileComplete(profile))
       setAuthLoading(false)
-
-      if (authInitializedRef.current && wasSignedOut) {
-        window.location.reload()
-      }
-
-      authInitializedRef.current = true
     })
 
     return () => {
