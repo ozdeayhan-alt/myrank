@@ -241,9 +241,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orderBy('createdAt', 'desc'),
       )
 
-      postsUnsubscribe = onSnapshot(
-        postsQuery,
-        (snapshot) => {
+      console.log('Firestore snapshot listener setup for posts collection', {
+        collectionPath: 'posts',
+        query: postsQuery,
+      })
+
+      postsUnsubscribe = onSnapshot(postsQuery, {
+        next: (snapshot) => {
+          console.log('Veri geldi:', snapshot.docs)
+          console.log('Firestore snapshot metadata:', {
+            empty: snapshot.empty,
+            size: snapshot.size,
+            fromCache: snapshot.metadata.fromCache,
+          })
+
           const firestorePosts = snapshot.docs.map((postDoc) => {
             const raw = postDoc.data()
             return normalizePost({
@@ -274,11 +285,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           setPosts(firestorePosts)
         },
-        (error) => {
+        error: (error) => {
           console.error('Firestore posts snapshot failed:', error)
+          console.error('Firestore posts query that failed:', postsQuery)
           // Keep local cache contents when Firestore is unavailable.
         },
-      )
+      })
 
       setAuthLoading(false)
     })
