@@ -21,8 +21,6 @@ import {
   doc,
   getDoc,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -236,18 +234,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setIsOnboarded(false)
       }
 
-      const postsQuery = query(
-        collection(db, 'posts'),
-        orderBy('createdAt', 'desc'),
-      )
+      const postsCollection = collection(db, 'posts')
 
       console.log('Firestore snapshot listener setup for posts collection', {
         collectionPath: 'posts',
-        query: postsQuery,
       })
 
-      postsUnsubscribe = onSnapshot(postsQuery, {
-        next: (snapshot) => {
+      postsUnsubscribe = onSnapshot(
+        postsCollection,
+        { includeMetadataChanges: true },
+        (snapshot) => {
           console.log('Veri geldi:', snapshot.docs)
           console.log('Firestore snapshot metadata:', {
             empty: snapshot.empty,
@@ -285,12 +281,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
           setPosts(firestorePosts)
         },
-        error: (error) => {
-          console.error('Firestore posts snapshot failed:', error)
-          console.error('Firestore posts query that failed:', postsQuery)
+        (error) => {
+          console.error('Firestore Senkronizasyon Hatası:', error)
           // Keep local cache contents when Firestore is unavailable.
         },
-      })
+      )
 
       setAuthLoading(false)
     })
