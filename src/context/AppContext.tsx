@@ -146,6 +146,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [fullScreenType, setFullScreenType] = useState<PostType | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [isOnboarded, setIsOnboarded] = useState(false)
+  const authRefreshTriggerRef = useRef(0)
+  const authInitializedRef = useRef(false)
 
   const normalizedPosts = posts
 
@@ -167,12 +169,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Post subscription and optimistic-add/vote logic are handled by `usePosts`
 
   useEffect(() => {
-    // Attach the auth state listener immediately so redirect-based
-    // sign-in flows are caught as soon as Firebase restores the session.
+    // Attach the auth state listener immediately so sign-in flows are
+    // caught as soon as Firebase restores the session.
     const unsubAuth = observeAuthState(async (firebaseUser) => {
       const currentUid = firebaseUser?.uid ?? null
-      if (currentUid && previousUserIdRef.current === currentUid) {
+      const previousUid = previousUserIdRef.current
+      const isSameUser = currentUid && previousUid === currentUid
+
+      if (isSameUser) {
         console.log('Auth state unchanged for UID:', currentUid)
+        setAuthLoading(false)
+        authRefreshTriggerRef.current += 1
         return
       }
 
@@ -183,57 +190,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setUser(null)
         setIsOnboarded(false)
         setAuthLoading(false)
+        authRefreshTriggerRef.current += 1
+        authInitializedRef.current = true
         return
       }
 
       const uid = firebaseUser.uid
+      const email = firebaseUser.email ?? ''
       const userDoc = await getUserProfile(uid)
       const username = usernameFromFirebase(firebaseUser)
       const fullName = firebaseUser.displayName ?? ''
 
-      if (userDoc?.isOnboarded === true) {
-        const profile = buildDefaultProfile({
-          username: String(userDoc.username ?? username),
-          fullName: String(userDoc.fullName ?? fullName),
-          country: String(userDoc.country ?? 'Türkiye'),
-          city: String(userDoc.city ?? 'İstanbul'),
-          gender: String(userDoc.gender ?? 'Belirtmek istemiyorum'),
-          age: String(userDoc.age ?? '25'),
-          profession: String(userDoc.profession ?? 'Kullanıcı'),
-          maritalStatus: String(userDoc.maritalStatus ?? 'Bekar'),
-          interests: String(userDoc.interests ?? 'Teknoloji'),
-        })
-        if (isProfileComplete(profile)) {
-          setUser({
-            id: uid,
-            username: profile.username,
-            profile,
-          })
-          setIsOnboarded(true)
-        } else {
-          setUser({
-            id: uid,
-            username,
-            profile: buildDefaultProfile({
-              username,
-              fullName,
-            }),
-          })
-          setIsOnboarded(false)
-        }
-      } else {
-        setUser({
-          id: uid,
-          username,
-          profile: buildDefaultProfile({
-            username,
-            fullName,
-          }),
-        })
-        setIsOnboarded(false)
+      const profile = buildDefaultProfile({
+        username: String(userDoc?.username ?? username),
+        fullName: String(userDoc?.fullName ?? fullName),
+        country: String(userDoc?.country ?? 'Türkiye'),
+        city: String(userDoc?.city ?? 'İstanbul'),
+        gender: String(userDoc?.gender ?? 'Belirtmek istemiyorum'),
+        age: String(userDoc?.age ?? '25'),
+        profession: String(userDoc?.profession ?? 'Kullanıcı'),
+        maritalStatus: String(userDoc?.maritalStatus ?? 'Bekar'),
+        interests: String(userDoc?.interests ?? 'Teknoloji'),
+      })
+
+      const authUser: AuthUser = {
+        id: uid,
+        username: profile.username,
+        email,
+        profile,
       }
 
+      setUser(authUser)
+      setIsOnboarded(userDoc?.isOnboarded === true && isProfileComplete(profile))
       setAuthLoading(false)
+      authRefreshTriggerRef.current += 1
+
+      if (authInitializedRef.current && !previousUid) {
+        window.location.reload()
+      }
+
+      authInitializedRef.current = true
     })
 
     return () => {

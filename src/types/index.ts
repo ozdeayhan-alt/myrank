@@ -13,5 +13,6 @@ export interface RegisterProfile {
 export interface AuthUser {
   id: string
   username: string
+  email?: string
   profile: RegisterProfile
 }
