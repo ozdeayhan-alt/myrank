@@ -82,7 +82,7 @@ export default function CreatePost() {
     }
   }
 
-  const handleShare = () => {
+  const handleShare = async () => {
     setError('')
 
     if (postType === 'tweet') {
@@ -90,7 +90,7 @@ export default function CreatePost() {
         setError('Tweet metni boş olamaz.')
         return
       }
-      addPost({ type: 'tweet', content: tweetText.trim() })
+      await addPost({ type: 'tweet', content: tweetText.trim() })
     } else if (postType === 'video') {
       if (videoDurationError) {
         setError(videoDurationError)
@@ -100,7 +100,7 @@ export default function CreatePost() {
         setError('Video veya açıklama ekleyin.')
         return
       }
-      addPost({
+      await addPost({
         type: 'video',
         content: caption.trim() || 'Video gönderisi',
         mediaUrl: VIDEO_FALLBACK,
@@ -110,7 +110,7 @@ export default function CreatePost() {
         setError('Bir fotoğraf seçin.')
         return
       }
-      addPost({
+      await addPost({
         type: 'photo',
         content: caption.trim() || 'Fotoğraf gönderisi',
         mediaUrl: photoDataUrl ?? photoPreview ?? undefined,

@@ -15,7 +15,17 @@ import {
   createUserWithEmailAndPassword,
   type User as FirebaseUser,
 } from 'firebase/auth'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+} from 'firebase/firestore'
 import type { AuthUser, RegisterProfile } from '../types'
 import type { AppPost, NewPostInput, PostType } from '../types/post'
 import type { RankedUser } from '../types/ranking'
@@ -104,9 +114,9 @@ interface AppContextType {
   logout: () => Promise<void>
   posts: AppPost[]
   feedPosts: AppPost[]
-  addPost: (input: NewPostInput) => AppPost
+  addPost: (input: NewPostInput) => Promise<AppPost>
   getPost: (id: string) => AppPost | undefined
-  voteOnPost: (postId: string, type: 'like' | 'dislike') => void
+  voteOnPost: (postId: string, type: 'like' | 'dislike') => Promise<void>
   rankings: RankedUser[]
   getPostsByUser: (userId: string) => AppPost[]
   getUserTotalPoints: (username?: string) => number
@@ -160,7 +170,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
+    let postsUnsubscribe: (() => void) | null = null
+
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (postsUnsubscribe) {
+        postsUnsubscribe()
+        postsUnsubscribe = null
+      }
+
       if (!firebaseUser) {
         setUser(null)
         setIsOnboarded(false)
@@ -217,10 +234,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setIsOnboarded(false)
       }
 
+      const postsQuery = query(
+        collection(db, 'posts'),
+        orderBy('createdAt', 'desc'),
+      )
+
+      postsUnsubscribe = onSnapshot(
+        postsQuery,
+        (snapshot) => {
+          const firestorePosts = snapshot.docs.map((postDoc) => {
+            const raw = postDoc.data()
+            return normalizePost({
+              id: postDoc.id,
+              userId: String(raw.userId ?? 'guest'),
+              author: String(raw.author ?? 'anonim'),
+              type: String(raw.type ?? 'tweet'),
+              content: String(raw.content ?? ''),
+              createdAt:
+                raw.createdAt && typeof raw.createdAt.toDate === 'function'
+                  ? raw.createdAt.toDate().toISOString()
+                  : String(raw.createdAt ?? new Date().toISOString()),
+              mediaUrl: String(raw.mediaUrl ?? ''),
+              likes: Number(raw.likes ?? 0),
+              dislikes: Number(raw.dislikes ?? 0),
+              comboDirection: raw.comboDirection ?? null,
+              comboCount: Number(raw.comboCount ?? 0),
+              lastServerAction: raw.lastServerAction ?? null,
+            })
+          })
+          setPosts(firestorePosts)
+        },
+        (error) => {
+          console.error('Firestore posts snapshot failed:', error)
+          // Keep local cache contents when Firestore is unavailable.
+        },
+      )
+
       setAuthLoading(false)
     })
 
-    return () => unsub()
+    return () => {
+      unsub()
+      if (postsUnsubscribe) postsUnsubscribe()
+    }
   }, [setUser])
 
   const loginWithGoogle = useCallback(async () => {
@@ -294,18 +350,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [setUser])
 
   const addPost = useCallback(
-    (input: NewPostInput): AppPost => {
-      const post = normalizePost({
-        id: `post-${Date.now()}`,
+    async (input: NewPostInput): Promise<AppPost> => {
+      const postData = {
         userId: user?.id ?? 'guest',
         author: user?.username ?? 'anonim',
         type: input.type,
         content: input.content.trim(),
         mediaUrl: input.mediaUrl,
+        likes: 0,
+        dislikes: 0,
+        comboDirection: null,
+        comboCount: 0,
+        lastServerAction: null,
+        createdAt: serverTimestamp(),
+      }
+
+      const fallbackPost = normalizePost({
+        id: `post-${Date.now()}`,
+        userId: postData.userId,
+        author: postData.author,
+        type: postData.type,
+        content: postData.content,
+        mediaUrl: postData.mediaUrl,
         createdAt: new Date().toISOString(),
+        likes: 0,
+        dislikes: 0,
+        comboDirection: null,
+        comboCount: 0,
+        lastServerAction: null,
       })
-      setPosts((prev) => [post, ...prev.map((p) => normalizePost(p))])
-      return post
+
+      try {
+        const docRef = await addDoc(collection(db, 'posts'), postData)
+        const createdPost = normalizePost({
+          ...fallbackPost,
+          id: docRef.id,
+        })
+        setPosts((prev) => [createdPost, ...prev.map((p) => normalizePost(p))])
+        return createdPost
+      } catch (error) {
+        console.error('Firestore addPost failed:', error)
+        setPosts((prev) => [fallbackPost, ...prev.map((p) => normalizePost(p))])
+        return fallbackPost
+      }
     },
     [user, setPosts],
   )
@@ -316,14 +403,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const voteOnPost = useCallback(
-    (postId: string, type: 'like' | 'dislike') => {
+    async (postId: string, type: 'like' | 'dislike') => {
+      const existingPost = normalizedPosts.find((p) => p.id === postId)
+      if (!existingPost) return
+
+      const updatedPost = applyVoteToPost(normalizePost(existingPost), type)
       setPosts((prev) =>
-        prev.map((p) =>
-          p.id === postId ? applyVoteToPost(normalizePost(p), type) : p,
-        ),
+        prev.map((p) => (p.id === postId ? updatedPost : p)),
       )
+
+      try {
+        await updateDoc(doc(db, 'posts', postId), {
+          likes: updatedPost.likes,
+          dislikes: updatedPost.dislikes,
+          comboDirection: updatedPost.comboDirection,
+          comboCount: updatedPost.comboCount,
+          lastServerAction: updatedPost.lastServerAction,
+        })
+      } catch (error) {
+        console.error('Firestore voteOnPost failed:', error)
+      }
     },
-    [setPosts],
+    [normalizedPosts, setPosts],
   )
 
   const getPostsByUser = useCallback(
