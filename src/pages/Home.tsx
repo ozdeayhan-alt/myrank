@@ -12,7 +12,12 @@ export default function Home() {
           Henüz gönderi yok. + ile paylaşın.
         </p>
       ) : (
-        feedPosts.map((post) => <FeedPost key={post.id} post={post} />)
+        feedPosts.map((post) => (
+          <FeedPost
+            key={`${post.id}-${post.mediaUrl ?? 'empty'}`}
+            post={post}
+          />
+        ))
       )}
       <p className="text-xs text-neutral-400 mt-4">
         Gönderi Puanı = Beğeni − Beğenmeme

@@ -85,6 +85,13 @@ function buildDefaultProfile(input: {
   }
 }
 
+function stablePostForComparison(post: AppPost) {
+  return {
+    ...post,
+    mediaUrl: post.mediaUrl ?? '',
+  }
+}
+
 function usernameFromFirebase(user: FirebaseUser): string {
   const fromEmail =
     user.email?.split('@')[0]?.trim().replace(/\s+/g, '_') ?? ''
@@ -290,8 +297,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Hanya update posts yang dari Firestore
         // pendingPosts akan dimrge di normalizedPosts useMemo
         // Ini menghilangkan race condition antara optimistic update dan server update
-        const currentPostsJson = JSON.stringify(postsRef.current)
-        const nextPostsJson = JSON.stringify(firestorePosts)
+        const currentPostsJson = JSON.stringify(
+          postsRef.current.map(stablePostForComparison),
+        )
+        const nextPostsJson = JSON.stringify(
+          firestorePosts.map(stablePostForComparison),
+        )
         if (currentPostsJson !== nextPostsJson) {
           setPosts(firestorePosts)
         }

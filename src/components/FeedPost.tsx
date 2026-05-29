@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import type { AppPost } from '../types/post'
 import { useApp } from '../context/AppContext'
 import { usePostFullscreen } from '../hooks/usePostFullscreen'
@@ -14,13 +14,19 @@ interface FeedPostProps {
 function FeedPost({ post: postProp }: FeedPostProps) {
   const { getPost } = useApp()
   const post = getPost(postProp.id) ?? postProp
-  const openFullScreenHandler = usePostFullscreen(post)
-  const openFullScreen = useCallback(
-    () => {
-      openFullScreenHandler()
-    },
-    [openFullScreenHandler],
+  const [loading, setLoading] = useState(
+    post.type === 'photo' ? !Boolean(post.mediaUrl) : false,
   )
+
+  useEffect(() => {
+    if (post.type !== 'photo') return
+    setLoading(!Boolean(post.mediaUrl))
+  }, [post.mediaUrl, post.type])
+
+  const openFullScreenHandler = usePostFullscreen(post)
+  const openFullScreen = useCallback(() => {
+    openFullScreenHandler()
+  }, [openFullScreenHandler])
 
   return (
     <article className="relative border border-[#e2e8f0] rounded-xl overflow-hidden bg-white mb-4">
@@ -81,13 +87,25 @@ function FeedPost({ post: postProp }: FeedPostProps) {
           </div>
         )}
 
-        {post.type === 'photo' && post.mediaUrl && (
+        {post.type === 'photo' && (
           <>
-            <img
-              src={post.mediaUrl}
-              alt=""
-              className="w-full aspect-square object-cover bg-neutral-100"
-            />
+            {loading || !post.mediaUrl ? (
+              <div
+                className="
+                  w-full aspect-square rounded-xl bg-neutral-100
+                  animate-pulse flex items-center justify-center
+                  text-sm text-neutral-500
+                "
+              >
+                Yükleniyor...
+              </div>
+            ) : (
+              <img
+                src={post.mediaUrl}
+                alt=""
+                className="w-full aspect-square object-cover bg-neutral-100"
+              />
+            )}
             {post.content && (
               <p className="px-3 py-3 text-sm text-neutral-800">
                 {post.content}
@@ -102,4 +120,24 @@ function FeedPost({ post: postProp }: FeedPostProps) {
   )
 }
 
-export default memo(FeedPost)
+function areFeedPostPropsEqual(prev: FeedPostProps, next: FeedPostProps) {
+  const a = prev.post
+  const b = next.post
+
+  return (
+    a.id === b.id &&
+    a.userId === b.userId &&
+    a.author === b.author &&
+    a.type === b.type &&
+    a.content === b.content &&
+    (a.mediaUrl ?? '') === (b.mediaUrl ?? '') &&
+    a.createdAt === b.createdAt &&
+    a.likes === b.likes &&
+    a.dislikes === b.dislikes &&
+    a.comboDirection === b.comboDirection &&
+    a.comboCount === b.comboCount &&
+    a.lastServerAction === b.lastServerAction
+  )
+}
+
+export default memo(FeedPost, areFeedPostPropsEqual)
