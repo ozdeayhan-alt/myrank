@@ -24,6 +24,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore'
 import type { AuthUser, RegisterProfile } from '../types'
@@ -142,6 +143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     'myrank1-posts',
     buildInitialPosts(),
   )
+  const [pendingPosts, setPendingPosts] = useState<AppPost[]>([])
   const [fullScreenStartId, setFullScreenStartId] = useState<string | null>(
     null,
   )
@@ -149,10 +151,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true)
   const [isOnboarded, setIsOnboarded] = useState(false)
 
-  const normalizedPosts = useMemo(
-    () => posts.map((p) => normalizePost(p)),
-    [posts],
-  )
+  const normalizedPosts = useMemo(() => {
+    const merged = [...posts, ...pendingPosts].map((p) => normalizePost(p))
+    return dedupePostsById(merged)
+  }, [posts, pendingPosts])
 
   const rankings = useMemo(
     () => buildDynamicRankings(normalizedPosts, user),
@@ -262,6 +264,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
               lastServerAction: raw.lastServerAction ?? null,
             })
           })
+
+          setPendingPosts((currentPending) =>
+            currentPending.filter(
+              (pendingPost) =>
+                !firestorePosts.some((serverPost) => serverPost.id === pendingPost.id),
+            ),
+          )
+
           setPosts(firestorePosts)
         },
         (error) => {
@@ -277,7 +287,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsub()
       if (postsUnsubscribe) postsUnsubscribe()
     }
-  }, [setUser])
+  }, [setUser, setPosts, setPendingPosts])
 
   const loginWithGoogle = useCallback(async () => {
     await signInWithPopup(auth, googleProvider)
@@ -351,27 +361,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addPost = useCallback(
     async (input: NewPostInput): Promise<AppPost> => {
-      const postData = {
+      const tempId = `temp-${Date.now()}`
+      const optimisticPost = normalizePost({
+        id: tempId,
         userId: user?.id ?? 'guest',
         author: user?.username ?? 'anonim',
         type: input.type,
         content: input.content.trim(),
         mediaUrl: input.mediaUrl,
-        likes: 0,
-        dislikes: 0,
-        comboDirection: null,
-        comboCount: 0,
-        lastServerAction: null,
-        createdAt: serverTimestamp(),
-      }
-
-      const fallbackPost = normalizePost({
-        id: `post-${Date.now()}`,
-        userId: postData.userId,
-        author: postData.author,
-        type: postData.type,
-        content: postData.content,
-        mediaUrl: postData.mediaUrl,
         createdAt: new Date().toISOString(),
         likes: 0,
         dislikes: 0,
@@ -380,21 +377,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
         lastServerAction: null,
       })
 
+      setPendingPosts((prev) => [optimisticPost, ...prev])
+
+      const postData = {
+        userId: optimisticPost.userId,
+        author: optimisticPost.author,
+        type: optimisticPost.type,
+        content: optimisticPost.content,
+        mediaUrl: optimisticPost.mediaUrl,
+        likes: 0,
+        dislikes: 0,
+        comboDirection: null,
+        comboCount: 0,
+        lastServerAction: null,
+        createdAt: serverTimestamp(),
+      }
+
       try {
         const docRef = await addDoc(collection(db, 'posts'), postData)
-        const createdPost = normalizePost({
-          ...fallbackPost,
-          id: docRef.id,
-        })
-        setPosts((prev) => [createdPost, ...prev.map((p) => normalizePost(p))])
-        return createdPost
+        setPendingPosts((prev) =>
+          prev.map((pending) =>
+            pending.id === tempId
+              ? {
+                  ...pending,
+                  id: docRef.id,
+                }
+              : pending,
+          ),
+        )
+        return { ...optimisticPost, id: docRef.id }
       } catch (error) {
         console.error('Firestore addPost failed:', error)
-        setPosts((prev) => [fallbackPost, ...prev.map((p) => normalizePost(p))])
-        return fallbackPost
+        return optimisticPost
       }
     },
-    [user, setPosts],
+    [user],
   )
 
   const getPost = useCallback(
@@ -411,6 +428,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPosts((prev) =>
         prev.map((p) => (p.id === postId ? updatedPost : p)),
       )
+      setPendingPosts((prev) =>
+        prev.map((p) => (p.id === postId ? updatedPost : p)),
+      )
+
+      if (postId.startsWith('temp-')) return
 
       try {
         await updateDoc(doc(db, 'posts', postId), {
