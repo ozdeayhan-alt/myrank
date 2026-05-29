@@ -4,11 +4,11 @@ import {
   useMemo,
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
 import {
-  onAuthStateChanged,
   signInWithPopup,
   signOut,
   signInWithEmailAndPassword,
@@ -39,7 +39,7 @@ import {
   getUserTotalPointsFromBoard,
 } from '../utils/appRankings'
 import { dedupePostsById, normalizePost } from '../utils/normalizePost'
-import { auth, db, googleProvider } from '../lib/firebase'
+import { auth, db, googleProvider, observeAuthState } from '../lib/firebase'
 
 function buildInitialPosts(): AppPost[] {
   return dedupePostsById(
@@ -142,6 +142,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     buildInitialPosts(),
   )
   const [pendingPosts, setPendingPosts] = useState<AppPost[]>([])
+  const previousUserIdRef = useRef<string | null>(null)
   const [fullScreenStartId, setFullScreenStartId] = useState<string | null>(
     null,
   )
@@ -170,15 +171,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
-    let postsUnsubscribe: (() => void) | null = null
-
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (postsUnsubscribe) {
-        postsUnsubscribe()
-        postsUnsubscribe = null
+    const unsubAuth = observeAuthState(async (firebaseUser) => {
+      const currentUid = firebaseUser?.uid ?? null
+      if (currentUid && previousUserIdRef.current === currentUid) {
+        console.log('Auth state unchanged for UID:', currentUid)
+        return
       }
 
+      previousUserIdRef.current = currentUid
+
       if (!firebaseUser) {
+        previousUserIdRef.current = null
         setUser(null)
         setIsOnboarded(false)
         setAuthLoading(false)
@@ -234,67 +237,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setIsOnboarded(false)
       }
 
-      const postsCollection = collection(db, 'posts')
-
-      console.log('Firestore snapshot listener setup for posts collection', {
-        collectionPath: 'posts',
-      })
-
-      postsUnsubscribe = onSnapshot(
-        postsCollection,
-        { includeMetadataChanges: true },
-        (snapshot) => {
-          console.log('Veri geldi:', snapshot.docs)
-          console.log('Firestore snapshot metadata:', {
-            empty: snapshot.empty,
-            size: snapshot.size,
-            fromCache: snapshot.metadata.fromCache,
-          })
-
-          const firestorePosts = snapshot.docs.map((postDoc) => {
-            const raw = postDoc.data()
-            return normalizePost({
-              id: postDoc.id,
-              userId: String(raw.userId ?? 'guest'),
-              author: String(raw.author ?? 'anonim'),
-              type: String(raw.type ?? 'tweet'),
-              content: String(raw.content ?? ''),
-              createdAt:
-                raw.createdAt && typeof raw.createdAt.toDate === 'function'
-                  ? raw.createdAt.toDate().toISOString()
-                  : String(raw.createdAt ?? new Date().toISOString()),
-              mediaUrl: String(raw.mediaUrl ?? ''),
-              likes: Number(raw.likes ?? 0),
-              dislikes: Number(raw.dislikes ?? 0),
-              comboDirection: raw.comboDirection ?? null,
-              comboCount: Number(raw.comboCount ?? 0),
-              lastServerAction: raw.lastServerAction ?? null,
-            })
-          })
-
-          setPendingPosts((currentPending) =>
-            currentPending.filter(
-              (pendingPost) =>
-                !firestorePosts.some((serverPost) => serverPost.id === pendingPost.id),
-            ),
-          )
-
-          setPosts(firestorePosts)
-        },
-        (error) => {
-          console.error('Firestore Senkronizasyon Hatası:', error)
-          // Keep local cache contents when Firestore is unavailable.
-        },
-      )
-
       setAuthLoading(false)
     })
 
     return () => {
-      unsub()
-      if (postsUnsubscribe) postsUnsubscribe()
+      unsubAuth()
     }
-  }, [setUser, setPosts, setPendingPosts])
+  }, [setUser, setIsOnboarded, setAuthLoading])
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const postsCollection = collection(db, 'posts')
+
+    console.log('Firestore snapshot listener setup for posts collection', {
+      collectionPath: 'posts',
+      userId: user.id,
+    })
+
+    const unsubscribe = onSnapshot(
+      postsCollection,
+      { includeMetadataChanges: true },
+      (snapshot) => {
+        console.log('Veri geldi:', snapshot.docs)
+        console.log('Firestore snapshot metadata:', {
+          empty: snapshot.empty,
+          size: snapshot.size,
+          fromCache: snapshot.metadata.fromCache,
+        })
+
+        const firestorePosts = snapshot.docs.map((postDoc) => {
+          const raw = postDoc.data()
+          return normalizePost({
+            id: postDoc.id,
+            userId: String(raw.userId ?? 'guest'),
+            author: String(raw.author ?? 'anonim'),
+            type: String(raw.type ?? 'tweet'),
+            content: String(raw.content ?? ''),
+            createdAt:
+              raw.createdAt && typeof raw.createdAt.toDate === 'function'
+                ? raw.createdAt.toDate().toISOString()
+                : String(raw.createdAt ?? new Date().toISOString()),
+            mediaUrl: String(raw.mediaUrl ?? ''),
+            likes: Number(raw.likes ?? 0),
+            dislikes: Number(raw.dislikes ?? 0),
+            comboDirection: raw.comboDirection ?? null,
+            comboCount: Number(raw.comboCount ?? 0),
+            lastServerAction: raw.lastServerAction ?? null,
+          })
+        })
+
+        setPendingPosts((currentPending) =>
+          currentPending.filter(
+            (pendingPost) =>
+              !firestorePosts.some((serverPost) => serverPost.id === pendingPost.id),
+          ),
+        )
+
+        setPosts(firestorePosts)
+      },
+      (error) => {
+        console.error('Firestore Senkronizasyon Hatası:', error)
+      },
+    )
+
+    return () => {
+      unsubscribe()
+    }
+  }, [user?.id, setPosts, setPendingPosts])
 
   const loginWithGoogle = useCallback(async () => {
     await signInWithPopup(auth, googleProvider)

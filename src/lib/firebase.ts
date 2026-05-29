@@ -1,5 +1,10 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth, GoogleAuthProvider } from 'firebase/auth'
+import {
+  getAuth,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  type User as FirebaseUser,
+} from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 
 const firebaseConfig = {
@@ -13,6 +18,20 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig)
 
+console.log('Firebase initialized with projectId:', firebaseConfig.projectId)
+console.log('Firebase config:', {
+  projectId: firebaseConfig.projectId,
+  authDomain: firebaseConfig.authDomain,
+})
+
 export const auth = getAuth(app)
 export const db = getFirestore(app)
 export const googleProvider = new GoogleAuthProvider()
+
+export function observeAuthState(
+  callback: (user: FirebaseUser | null) => void,
+) {
+  return onAuthStateChanged(auth, callback)
+}
+
+export { firebaseConfig }
