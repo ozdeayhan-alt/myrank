@@ -1,6 +1,8 @@
 import { initializeApp } from 'firebase/app'
 import {
   getAuth,
+  browserLocalPersistence,
+  setPersistence,
   GoogleAuthProvider,
   onAuthStateChanged,
   type User as FirebaseUser,
@@ -25,6 +27,13 @@ console.log('Firebase config:', {
 })
 
 export const auth = getAuth(app)
+
+// Use browser language for OAuth flows and persist auth state locally.
+auth.useDeviceLanguage()
+setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.warn('Failed to set Firebase auth persistence:', error)
+})
+
 export const db = getFirestore(app, {
   experimentalForceLongPolling: true,
 })

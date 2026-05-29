@@ -167,6 +167,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Post subscription and optimistic-add/vote logic are handled by `usePosts`
 
   useEffect(() => {
+    // Attach the auth state listener immediately so redirect-based
+    // sign-in flows are caught as soon as Firebase restores the session.
     const unsubAuth = observeAuthState(async (firebaseUser) => {
       const currentUid = firebaseUser?.uid ?? null
       if (currentUid && previousUserIdRef.current === currentUid) {
