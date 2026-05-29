@@ -11,6 +11,8 @@ import {
   onAuthStateChanged,
   signInWithPopup,
   signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   type User as FirebaseUser,
 } from 'firebase/auth'
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
@@ -96,6 +98,8 @@ interface AppContextType {
   authLoading: boolean
   isOnboarded: boolean
   loginWithGoogle: () => Promise<void>
+  loginWithEmail: (email: string, password: string) => Promise<void>
+  registerWithEmail: (email: string, password: string) => Promise<void>
   completeOnboarding: (input: OnboardingInput) => Promise<void>
   logout: () => Promise<void>
   posts: AppPost[]
@@ -222,6 +226,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loginWithGoogle = useCallback(async () => {
     await signInWithPopup(auth, googleProvider)
   }, [])
+
+  const loginWithEmail = useCallback(
+    async (email: string, password: string) => {
+      await signInWithEmailAndPassword(auth, email, password)
+    },
+    [],
+  )
+
+  const registerWithEmail = useCallback(
+    async (email: string, password: string) => {
+      await createUserWithEmailAndPassword(auth, email, password)
+    },
+    [],
+  )
 
   const completeOnboarding = useCallback(
     async (input: OnboardingInput) => {
@@ -364,6 +382,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     authLoading,
     isOnboarded,
     loginWithGoogle,
+    loginWithEmail,
+    registerWithEmail,
     completeOnboarding,
     logout,
     posts: normalizedPosts,

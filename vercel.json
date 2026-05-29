@@ -1,0 +1,5 @@
+{
+  "installCommand": "npm install",
+  "buildCommand": "tsc -b && vite build",
+  "outputDirectory": "dist"
+}
