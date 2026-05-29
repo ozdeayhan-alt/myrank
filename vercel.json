@@ -1,5 +1,4 @@
 {
-  "installCommand": "npm install",
-  "buildCommand": "tsc -b && vite build",
-  "outputDirectory": "dist"
+  "installCommand": "npm install && chmod -R +x node_modules/.bin",
+  "buildCommand": "npm run build"
 }
