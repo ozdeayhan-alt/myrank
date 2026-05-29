@@ -32,6 +32,7 @@ import type { ProfileCategoryRank } from '../types/profile'
 import { INITIAL_POSTS } from '../data/initialPosts'
 import { EXPLORE_SEED_POSTS } from '../data/exploreSeedPosts'
 import { useLocalStorage } from '../hooks/useLocalStorage'
+import { useFirebaseReady } from '../hooks/useFirebaseReady'
 import { applyVoteToPost, COMBO_TARGET } from '../utils/comboEngine'
 import {
   buildDynamicRankings,
@@ -133,6 +134,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | null>(null)
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const isFirebaseReady = useFirebaseReady()
   const [user, setUser] = useLocalStorage<AuthUser | null>(
     'myrank1-user',
     null,
@@ -251,7 +253,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [setUser, setIsOnboarded, setAuthLoading])
 
   useEffect(() => {
-    if (!user?.id) return
+    if (!isFirebaseReady || !user?.id) return
 
     const postsCollection = collection(db, 'posts')
 
@@ -285,13 +287,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           })
         })
 
-        setPendingPosts((currentPending) =>
-          currentPending.filter(
-            (pendingPost) =>
-              !firestorePosts.some((serverPost) => serverPost.id === pendingPost.id),
-          ),
-        )
-
+        // Hanya update posts yang dari Firestore
+        // pendingPosts akan dimrge di normalizedPosts useMemo
+        // Ini menghilangkan race condition antara optimistic update dan server update
         const currentPostsJson = JSON.stringify(postsRef.current)
         const nextPostsJson = JSON.stringify(firestorePosts)
         if (currentPostsJson !== nextPostsJson) {
@@ -313,7 +311,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubscribe()
     }
-  }, [user?.id, setPosts, setPendingPosts])
+  }, [isFirebaseReady, user?.id, setPosts])
 
   const loginWithGoogle = useCallback(async () => {
     await signInWithPopup(auth, googleProvider)
@@ -403,6 +401,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         lastServerAction: null,
       })
 
+      // Add optimistic post to pending
       setPendingPosts((prev) => [optimisticPost, ...prev])
 
       const postData = {
@@ -421,18 +420,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       try {
         const docRef = await addDoc(collection(db, 'posts'), postData)
-        const updatedPost = { ...optimisticPost, id: docRef.id }
         
+        // Update pending post dengan real ID
+        // onSnapshot listener akan handle sisanya - akan sync dari Firestore
         setPendingPosts((prev) =>
           prev.map((pending) =>
             pending.id === tempId
-              ? updatedPost
+              ? { ...pending, id: docRef.id }
               : pending,
           ),
         )
-        return updatedPost
+        
+        return { ...optimisticPost, id: docRef.id }
       } catch (error) {
         console.error('Firestore addPost failed:', error)
+        // Remove pending post on error
         setPendingPosts((prev) => prev.filter((p) => p.id !== tempId))
         throw error
       }
