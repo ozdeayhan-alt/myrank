@@ -228,10 +228,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Use popup auth flow for Vercel deployments to avoid redirect-based
     // sign-in state synchronization issues.
     await signInWithPopup(auth, googleProvider)
-
-    if (typeof window !== 'undefined') {
-      window.location.reload()
-    }
   }, [])
 
   const loginWithEmail = useCallback(
