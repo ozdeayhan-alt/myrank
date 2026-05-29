@@ -1,3 +1,4 @@
+import { memo, useCallback } from 'react'
 import type { AppPost } from '../types/post'
 import { useApp } from '../context/AppContext'
 import { usePostFullscreen } from '../hooks/usePostFullscreen'
@@ -10,10 +11,16 @@ interface FeedPostProps {
   post: AppPost
 }
 
-export default function FeedPost({ post: postProp }: FeedPostProps) {
+function FeedPost({ post: postProp }: FeedPostProps) {
   const { getPost } = useApp()
   const post = getPost(postProp.id) ?? postProp
-  const openFullScreen = usePostFullscreen(post)
+  const openFullScreenHandler = usePostFullscreen(post)
+  const openFullScreen = useCallback(
+    () => {
+      openFullScreenHandler()
+    },
+    [openFullScreenHandler],
+  )
 
   return (
     <article className="relative border border-[#e2e8f0] rounded-xl overflow-hidden bg-white mb-4">
@@ -94,3 +101,5 @@ export default function FeedPost({ post: postProp }: FeedPostProps) {
     </article>
   )
 }
+
+export default memo(FeedPost)
