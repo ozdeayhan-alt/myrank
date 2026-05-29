@@ -146,7 +146,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [fullScreenType, setFullScreenType] = useState<PostType | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [isOnboarded, setIsOnboarded] = useState(false)
-  const authRefreshTriggerRef = useRef(0)
   const authInitializedRef = useRef(false)
 
   const normalizedPosts = posts
@@ -172,25 +171,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Attach the auth state listener immediately so sign-in flows are
     // caught as soon as Firebase restores the session.
     const unsubAuth = observeAuthState(async (firebaseUser) => {
-      const currentUid = firebaseUser?.uid ?? null
-      const previousUid = previousUserIdRef.current
-      const isSameUser = currentUid && previousUid === currentUid
-
-      if (isSameUser) {
-        console.log('Auth state unchanged for UID:', currentUid)
-        setAuthLoading(false)
-        authRefreshTriggerRef.current += 1
-        return
-      }
-
-      previousUserIdRef.current = currentUid
-
       if (!firebaseUser) {
         previousUserIdRef.current = null
         setUser(null)
         setIsOnboarded(false)
         setAuthLoading(false)
-        authRefreshTriggerRef.current += 1
         authInitializedRef.current = true
         return
       }
@@ -220,12 +205,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         profile,
       }
 
+      const wasSignedOut = previousUserIdRef.current === null
+      previousUserIdRef.current = uid
+
       setUser(authUser)
       setIsOnboarded(userDoc?.isOnboarded === true && isProfileComplete(profile))
       setAuthLoading(false)
-      authRefreshTriggerRef.current += 1
 
-      if (authInitializedRef.current && !previousUid) {
+      if (authInitializedRef.current && wasSignedOut) {
         window.location.reload()
       }
 
@@ -241,6 +228,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Use popup auth flow for Vercel deployments to avoid redirect-based
     // sign-in state synchronization issues.
     await signInWithPopup(auth, googleProvider)
+
+    if (typeof window !== 'undefined') {
+      window.location.reload()
+    }
   }, [])
 
   const loginWithEmail = useCallback(
