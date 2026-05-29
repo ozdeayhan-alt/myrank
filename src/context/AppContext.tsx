@@ -141,6 +141,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     'myrank1-posts',
     buildInitialPosts(),
   )
+  const postsRef = useRef<AppPost[]>(posts)
   const [pendingPosts, setPendingPosts] = useState<AppPost[]>([])
   const previousUserIdRef = useRef<string | null>(null)
   const [fullScreenStartId, setFullScreenStartId] = useState<string | null>(
@@ -169,6 +170,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ),
     [normalizedPosts],
   )
+
+  useEffect(() => {
+    postsRef.current = posts
+  }, [posts])
 
   useEffect(() => {
     const unsubAuth = observeAuthState(async (firebaseUser) => {
@@ -294,9 +299,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ),
         )
 
-        setPosts(firestorePosts)
+        const currentPostsJson = JSON.stringify(postsRef.current)
+        const nextPostsJson = JSON.stringify(firestorePosts)
+        if (currentPostsJson !== nextPostsJson) {
+          setPosts(firestorePosts)
+        } else {
+          console.log('Firestore snapshot data unchanged; skipping setPosts')
+        }
       },
       (error) => {
+        if ((error as Error)?.name === 'AbortError') {
+          return
+        }
         console.error('Firestore Senkronizasyon Hatası:', error)
       },
     )
@@ -401,7 +415,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         author: optimisticPost.author,
         type: optimisticPost.type,
         content: optimisticPost.content,
-        mediaUrl: optimisticPost.mediaUrl,
+        mediaUrl: optimisticPost.mediaUrl || null,
         likes: 0,
         dislikes: 0,
         comboDirection: null,
