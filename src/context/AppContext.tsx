@@ -262,15 +262,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const unsubscribe = onSnapshot(
       postsCollection,
-      { includeMetadataChanges: true },
+      { includeMetadataChanges: false },
       (snapshot) => {
-        console.log('Veri geldi:', snapshot.docs)
-        console.log('Firestore snapshot metadata:', {
-          empty: snapshot.empty,
-          size: snapshot.size,
-          fromCache: snapshot.metadata.fromCache,
-        })
-
         const firestorePosts = snapshot.docs.map((postDoc) => {
           const raw = postDoc.data()
           return normalizePost({
@@ -303,12 +296,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const nextPostsJson = JSON.stringify(firestorePosts)
         if (currentPostsJson !== nextPostsJson) {
           setPosts(firestorePosts)
-        } else {
-          console.log('Firestore snapshot data unchanged; skipping setPosts')
         }
       },
       (error) => {
-        if ((error as Error)?.name === 'AbortError') {
+        const err = error as any
+        if (err?.code === 'cancelled' || err?.name === 'AbortError') {
+          return
+        }
+        if (err?.message?.includes('AbortError')) {
           return
         }
         console.error('Firestore Senkronizasyon Hatası:', error)
@@ -426,20 +421,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       try {
         const docRef = await addDoc(collection(db, 'posts'), postData)
+        const updatedPost = { ...optimisticPost, id: docRef.id }
+        
         setPendingPosts((prev) =>
           prev.map((pending) =>
             pending.id === tempId
-              ? {
-                  ...pending,
-                  id: docRef.id,
-                }
+              ? updatedPost
               : pending,
           ),
         )
-        return { ...optimisticPost, id: docRef.id }
+        return updatedPost
       } catch (error) {
         console.error('Firestore addPost failed:', error)
-        return optimisticPost
+        setPendingPosts((prev) => prev.filter((p) => p.id !== tempId))
+        throw error
       }
     },
     [user],
@@ -456,12 +451,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!existingPost) return
 
       const updatedPost = applyVoteToPost(normalizePost(existingPost), type)
-      setPosts((prev) =>
-        prev.map((p) => (p.id === postId ? updatedPost : p)),
-      )
-      setPendingPosts((prev) =>
-        prev.map((p) => (p.id === postId ? updatedPost : p)),
-      )
 
       if (postId.startsWith('temp-')) return
 
@@ -477,7 +466,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.error('Firestore voteOnPost failed:', error)
       }
     },
-    [normalizedPosts, setPosts],
+    [normalizedPosts],
   )
 
   const getPostsByUser = useCallback(
