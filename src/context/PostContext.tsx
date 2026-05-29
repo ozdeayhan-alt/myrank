@@ -1,1 +1,1 @@
-export { usePosts } from './AppContext'
+export { usePosts } from '../hooks/usePosts'

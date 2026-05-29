@@ -15,10 +15,28 @@
       rel="stylesheet"
     />
     <title>MyRank1</title>
-    <script type="module" crossorigin src="/assets/index-DLU9sCwR.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Cv2Lx7pL.css">
+    <script type="module" crossorigin src="/assets/index-hTs0woD0.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Dh0lvfvJ.css">
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Suppress Firebase message channel warnings
+      const originalWarn = console.warn;
+      console.warn = function(...args) {
+        if (args[0]?.includes?.('message channel') || args[0]?.includes?.('postMessage')) {
+          return;
+        }
+        originalWarn.apply(console, args);
+      };
+
+      // Load eruda in development only
+      if (import.meta.env.DEV) {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/eruda';
+        script.onload = () => window.eruda?.init();
+        document.head.appendChild(script);
+      }
+    </script>
   </body>
 </html>

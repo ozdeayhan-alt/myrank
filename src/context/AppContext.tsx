@@ -15,16 +15,6 @@ import {
   createUserWithEmailAndPassword,
   type User as FirebaseUser,
 } from 'firebase/auth'
-import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  onSnapshot,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from 'firebase/firestore'
 import type { AuthUser, RegisterProfile } from '../types'
 import type { AppPost, NewPostInput, PostType } from '../types/post'
 import type { RankedUser } from '../types/ranking'
@@ -33,6 +23,8 @@ import { INITIAL_POSTS } from '../data/initialPosts'
 import { EXPLORE_SEED_POSTS } from '../data/exploreSeedPosts'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { useFirebaseReady } from '../hooks/useFirebaseReady'
+import { usePosts } from '../hooks/usePosts'
+import { getUserProfile, saveUserProfile } from '../services/UserService'
 import { applyVoteToPost, COMBO_TARGET } from '../utils/comboEngine'
 import {
   buildDynamicRankings,
@@ -40,7 +32,7 @@ import {
   getUserTotalPointsFromBoard,
 } from '../utils/appRankings'
 import { dedupePostsById, normalizePost } from '../utils/normalizePost'
-import { auth, db, googleProvider, observeAuthState } from '../lib/firebase'
+import { auth, googleProvider, observeAuthState } from '../lib/firebase'
 
 function buildInitialPosts(): AppPost[] {
   return dedupePostsById(
@@ -146,12 +138,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     'myrank1-user',
     null,
   )
-  const [posts, setPosts] = useLocalStorage<AppPost[]>(
-    'myrank1-posts',
-    buildInitialPosts(),
-  )
-  const postsRef = useRef<AppPost[]>(posts)
-  const [pendingPosts, setPendingPosts] = useState<AppPost[]>([])
+  const { posts, addPost, voteOnPost } = usePosts(user, isFirebaseReady)
   const previousUserIdRef = useRef<string | null>(null)
   const [fullScreenStartId, setFullScreenStartId] = useState<string | null>(
     null,
@@ -160,10 +147,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true)
   const [isOnboarded, setIsOnboarded] = useState(false)
 
-  const normalizedPosts = useMemo(() => {
-    const merged = [...posts, ...pendingPosts].map((p) => normalizePost(p))
-    return dedupePostsById(merged)
-  }, [posts, pendingPosts])
+  const normalizedPosts = posts
 
   const rankings = useMemo(
     () => buildDynamicRankings(normalizedPosts, user),
@@ -180,9 +164,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [normalizedPosts],
   )
 
-  useEffect(() => {
-    postsRef.current = posts
-  }, [posts])
+  // Post subscription and optimistic-add/vote logic are handled by `usePosts`
 
   useEffect(() => {
     const unsubAuth = observeAuthState(async (firebaseUser) => {
@@ -203,23 +185,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       const uid = firebaseUser.uid
-      const userRef = doc(db, 'users', uid)
-      const snap = await getDoc(userRef)
+      const userDoc = await getUserProfile(uid)
       const username = usernameFromFirebase(firebaseUser)
       const fullName = firebaseUser.displayName ?? ''
 
-      if (snap.exists() && snap.data().isOnboarded === true) {
-        const data = snap.data()
+      if (userDoc?.isOnboarded === true) {
         const profile = buildDefaultProfile({
-          username: String(data.username ?? username),
-          fullName: String(data.fullName ?? fullName),
-          country: String(data.country ?? 'Türkiye'),
-          city: String(data.city ?? 'İstanbul'),
-          gender: String(data.gender ?? 'Belirtmek istemiyorum'),
-          age: String(data.age ?? '25'),
-          profession: String(data.profession ?? 'Kullanıcı'),
-          maritalStatus: String(data.maritalStatus ?? 'Bekar'),
-          interests: String(data.interests ?? 'Teknoloji'),
+          username: String(userDoc.username ?? username),
+          fullName: String(userDoc.fullName ?? fullName),
+          country: String(userDoc.country ?? 'Türkiye'),
+          city: String(userDoc.city ?? 'İstanbul'),
+          gender: String(userDoc.gender ?? 'Belirtmek istemiyorum'),
+          age: String(userDoc.age ?? '25'),
+          profession: String(userDoc.profession ?? 'Kullanıcı'),
+          maritalStatus: String(userDoc.maritalStatus ?? 'Bekar'),
+          interests: String(userDoc.interests ?? 'Teknoloji'),
         })
         if (isProfileComplete(profile)) {
           setUser({
@@ -259,71 +239,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [setUser, setIsOnboarded, setAuthLoading])
 
-  useEffect(() => {
-    if (!isFirebaseReady || !user?.id) return
-
-    const postsCollection = collection(db, 'posts')
-
-    console.log('Firestore snapshot listener setup for posts collection', {
-      collectionPath: 'posts',
-      userId: user.id,
-    })
-
-    const unsubscribe = onSnapshot(
-      postsCollection,
-      { includeMetadataChanges: false },
-      (snapshot) => {
-        const firestorePosts = snapshot.docs.map((postDoc) => {
-          const raw = postDoc.data()
-          return normalizePost({
-            id: postDoc.id,
-            userId: String(raw.userId ?? 'guest'),
-            author: String(raw.author ?? 'anonim'),
-            type: String(raw.type ?? 'tweet'),
-            content: String(raw.content ?? ''),
-            createdAt:
-              raw.createdAt && typeof raw.createdAt.toDate === 'function'
-                ? raw.createdAt.toDate().toISOString()
-                : String(raw.createdAt ?? new Date().toISOString()),
-            mediaUrl: String(raw.mediaUrl ?? ''),
-            likes: Number(raw.likes ?? 0),
-            dislikes: Number(raw.dislikes ?? 0),
-            comboDirection: raw.comboDirection ?? null,
-            comboCount: Number(raw.comboCount ?? 0),
-            lastServerAction: raw.lastServerAction ?? null,
-          })
-        })
-
-        // Hanya update posts yang dari Firestore
-        // pendingPosts akan dimrge di normalizedPosts useMemo
-        // Ini menghilangkan race condition antara optimistic update dan server update
-        const currentPostsJson = JSON.stringify(
-          postsRef.current.map(stablePostForComparison),
-        )
-        const nextPostsJson = JSON.stringify(
-          firestorePosts.map(stablePostForComparison),
-        )
-        if (currentPostsJson !== nextPostsJson) {
-          setPosts(firestorePosts)
-        }
-      },
-      (error) => {
-        const err = error as any
-        if (err?.code === 'cancelled' || err?.name === 'AbortError') {
-          return
-        }
-        if (err?.message?.includes('AbortError')) {
-          return
-        }
-        console.error('Firestore Senkronizasyon Hatası:', error)
-      },
-    )
-
-    return () => {
-      unsubscribe()
-    }
-  }, [isFirebaseReady, user?.id, setPosts])
-
   const loginWithGoogle = useCallback(async () => {
     await signInWithPopup(auth, googleProvider)
   }, [])
@@ -362,21 +277,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         interests: 'Teknoloji',
       })
 
-      await setDoc(doc(db, 'users', current.uid), {
-        uid: current.uid,
-        email: current.email ?? '',
-        username: profile.username,
-        fullName: profile.fullName ?? '',
-        interests: profile.interests,
-        country: profile.country,
-        city: profile.city,
-        gender: profile.gender,
-        age: profile.age,
-        profession: profile.profession,
-        maritalStatus: profile.maritalStatus,
-        isOnboarded: true,
-        updatedAt: serverTimestamp(),
-      }, { merge: true })
+      await saveUserProfile(current.uid, profile, current.email ?? '')
 
       setUser({
         id: current.uid,
@@ -394,93 +295,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setIsOnboarded(false)
   }, [setUser])
 
-  const addPost = useCallback(
-    async (input: NewPostInput): Promise<AppPost> => {
-      const tempId = `temp-${Date.now()}`
-      const optimisticPost = normalizePost({
-        id: tempId,
-        userId: user?.id ?? 'guest',
-        author: user?.username ?? 'anonim',
-        type: input.type,
-        content: input.content.trim(),
-        mediaUrl: input.mediaUrl,
-        createdAt: new Date().toISOString(),
-        likes: 0,
-        dislikes: 0,
-        comboDirection: null,
-        comboCount: 0,
-        lastServerAction: null,
-      })
-
-      // Add optimistic post to pending
-      setPendingPosts((prev) => [optimisticPost, ...prev])
-
-      const postData = {
-        userId: optimisticPost.userId,
-        author: optimisticPost.author,
-        type: optimisticPost.type,
-        content: optimisticPost.content,
-        mediaUrl: optimisticPost.mediaUrl || null,
-        likes: 0,
-        dislikes: 0,
-        comboDirection: null,
-        comboCount: 0,
-        lastServerAction: null,
-        createdAt: serverTimestamp(),
-      }
-
-      try {
-        const docRef = await addDoc(collection(db, 'posts'), postData)
-        
-        // Update pending post dengan real ID
-        // onSnapshot listener akan handle sisanya - akan sync dari Firestore
-        setPendingPosts((prev) =>
-          prev.map((pending) =>
-            pending.id === tempId
-              ? { ...pending, id: docRef.id }
-              : pending,
-          ),
-        )
-        
-        return { ...optimisticPost, id: docRef.id }
-      } catch (error) {
-        console.error('Firestore addPost failed:', error)
-        // Remove pending post on error
-        setPendingPosts((prev) => prev.filter((p) => p.id !== tempId))
-        throw error
-      }
-    },
-    [user],
-  )
+  // `addPost` is provided by `usePosts` hook
 
   const getPost = useCallback(
     (id: string) => normalizedPosts.find((p) => p.id === id),
     [normalizedPosts],
   )
 
-  const voteOnPost = useCallback(
-    async (postId: string, type: 'like' | 'dislike') => {
-      const existingPost = normalizedPosts.find((p) => p.id === postId)
-      if (!existingPost) return
-
-      const updatedPost = applyVoteToPost(normalizePost(existingPost), type)
-
-      if (postId.startsWith('temp-')) return
-
-      try {
-        await updateDoc(doc(db, 'posts', postId), {
-          likes: updatedPost.likes,
-          dislikes: updatedPost.dislikes,
-          comboDirection: updatedPost.comboDirection,
-          comboCount: updatedPost.comboCount,
-          lastServerAction: updatedPost.lastServerAction,
-        })
-      } catch (error) {
-        console.error('Firestore voteOnPost failed:', error)
-      }
-    },
-    [normalizedPosts],
-  )
+  // `voteOnPost` is provided by `usePosts` hook
 
   const getPostsByUser = useCallback(
     (userId: string) =>
@@ -615,11 +437,4 @@ export function useAuth() {
   }
 }
 
-export function usePosts() {
-  const app = useApp()
-  return {
-    posts: app.posts,
-    addPost: app.addPost,
-    getPostsByUser: app.getPostsByUser,
-  }
-}
+// usePosts hook is exported from src/hooks/usePosts
